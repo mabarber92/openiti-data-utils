@@ -2,8 +2,11 @@ import pandas as pd
 import re
 
 class getTags():
-    def __init__ (self, meta_csv, col = "tags"):
-        self.meta_df = pd.read_csv(meta_csv, sep="\t")
+    def __init__ (self, input, col = "tags", input_df = False):
+        if input_df:
+            self.meta_df = input
+        else:
+            self.meta_df = pd.read_csv(meta_csv, sep="\t")
         self.fetch_col(col)
     def fetch_col(self, col="tags"):
         self.col_series = self.meta_df[col]
@@ -15,6 +18,11 @@ class getTags():
         df = pd.DataFrame()
         df[col_name] = list(dict.fromkeys(self.list_of_all_tags()))
         return df.sort_values(by = col_name)
+    def count_tags(self, col_name="unique_tags"):
+        df = pd.DataFrame()
+        df[col_name] = self.list_of_all_tags()
+        df = df.value_counts().rename_axis(col_name).reset_index(name='counts')
+        return df
     def list_of_all_tags(self):
         final_list = []
         list_of_rows = self.col_series.dropna().tolist()

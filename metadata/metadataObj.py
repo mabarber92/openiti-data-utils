@@ -5,10 +5,24 @@ class metadataObj():
     def __init__ (self, meta_csv, only_pri = True):
         self.meta = pd.read_csv(meta_csv, sep="\t")
         if only_pri:
-            self.meta = self.meta[self.meta["status"] == "pri"]
+            self.pri_only()
         self.meta["author_uri"] = self.meta["book"].str.split(".", expand=True)[0]
         self.author = None
         self.date = None
+
+    def pri_only(self):
+        self.meta = self.meta[self.meta["status"] == "pri"]
+    
+    def only_books_before_date(self, date):
+        self.meta = self.get_books_dated_between(0, date)
+
+    # Functions for performing aggregate stats on self.meta 
+    def count_books(self):
+        return len(self.meta)
+    def count_authors(self):
+        return len(self.meta["author_uri"].drop_duplicates())
+    def count_words(self):
+        return self.meta["tok_length"].sum()
 
     def set_author_uri(self, author_uri):
         self.author_uri = author_uri
@@ -66,4 +80,6 @@ class metadataObj():
         self.author_uri = author
         book_list = self.meta[self.meta["author_uri"] == self.author_uri]["book"].to_list()
         return book_list
+    
+
 
