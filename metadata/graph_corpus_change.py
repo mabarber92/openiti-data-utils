@@ -53,11 +53,12 @@ def graph_corpus_change(metadata_paths_dicts, png_out_path, aggregate_stat = "wo
                 output_row = {"Release Code" : release_code, aggregate_stat: run_aggregate(metadata_obj, aggregate_stat), "corpus": "all"}
                 output_list.append(output_row)
 
-            # Evertime - filter to pri only and add to output
-            metadata_obj.pri_only()
+            # Evertime - filter to pri only and add to output - except authors as primary offers no distinction
+            if aggregate_stat != "authors":
+                metadata_obj.pri_only()
             
-            output_row = {"Release Code" : release_code, aggregate_stat: run_aggregate(metadata_obj, aggregate_stat), "corpus": "primary"}
-            output_list.append(output_row)
+                output_row = {"Release Code" : release_code, aggregate_stat: run_aggregate(metadata_obj, aggregate_stat), "corpus": "primary"}
+                output_list.append(output_row)
 
             if add_date_filter is not None:
                 metadata_obj.only_books_before_date(add_date_filter)
