@@ -2,6 +2,7 @@ from metadataObj import metadataObj
 import seaborn as sns
 import pandas as pd
 import matplotlib.pyplot as plt
+import copy
 
 def run_aggregate(metadata_obj, aggregate_type):
     if aggregate_type == "words":
@@ -14,7 +15,7 @@ def run_aggregate(metadata_obj, aggregate_type):
         raise ValueError("Invalid aggregate_type!")
     
 
-def graph_corpus_change(metadata_paths_dicts, png_out_path, aggregate_stat = "words", comp_pri_sec = True, add_date_filter=1000):
+def graph_corpus_change(metadata_paths_dicts, png_out_path, aggregate_stat = "words", comp_pri_sec = True, comp_lang = False, add_date_filter=1000):
     """Takes a metadata_paths_dicts, which is formatted as a list of dicts, as follows:
     [{"release_code": "2022.2.7", "path": "D:\metadata\metadata_path.csv"}]
     comp_pri_sec - if True, it will produce a graph with two lines, comparing the stat between just
@@ -37,27 +38,38 @@ def graph_corpus_change(metadata_paths_dicts, png_out_path, aggregate_stat = "wo
         # Create a metadataObj for the specified path and run the chosen aggregation
         metadata_obj = metadataObj(release_path["path"], only_pri=False)
 
-        # If comparing - run an aggregate before filtering to pri_only
-        if comp_pri_sec:
-            output_row = {"Release Code" : release_code, aggregate_stat: run_aggregate(metadata_obj, aggregate_stat), "corpus": "all"}
-            output_list.append(output_row)
-
-        # Evertime - filter to pri only and add to output
-        metadata_obj.pri_only()
+        # If we're filtering by language, follow a different route
+        if comp_lang:
+            lang_codes = metadata_obj.fetch_lang_codes()
+            for code in lang_codes:
+                lang_filtered = metadata_obj.return_lang_filtered(code)
+                output_row = {"Release Code" : release_code, aggregate_stat: run_aggregate(lang_filtered, aggregate_stat), "corpus": code}
+                output_list.append(output_row)
         
-        output_row = {"Release Code" : release_code, aggregate_stat: run_aggregate(metadata_obj, aggregate_stat), "corpus": "primary"}
-        output_list.append(output_row)
+        else:
 
-        if add_date_filter is not None:
-            metadata_obj.only_books_before_date(add_date_filter)
-            output_row = {"Release Code" : release_code, aggregate_stat: run_aggregate(metadata_obj, aggregate_stat), "corpus": "before {}AH".format(add_date_filter)}
+            # If comparing - run an aggregate before filtering to pri_only
+            if comp_pri_sec:
+                output_row = {"Release Code" : release_code, aggregate_stat: run_aggregate(metadata_obj, aggregate_stat), "corpus": "all"}
+                output_list.append(output_row)
+
+            # Evertime - filter to pri only and add to output
+            metadata_obj.pri_only()
+            
+            output_row = {"Release Code" : release_code, aggregate_stat: run_aggregate(metadata_obj, aggregate_stat), "corpus": "primary"}
             output_list.append(output_row)
+
+            if add_date_filter is not None:
+                metadata_obj.only_books_before_date(add_date_filter)
+                output_row = {"Release Code" : release_code, aggregate_stat: run_aggregate(metadata_obj, aggregate_stat), "corpus": "before {}AH".format(add_date_filter)}
+                output_list.append(output_row)
     
     # Transform output_list into df for processing
     df = pd.DataFrame(output_list)
     # print(df)
     # Create a link graph
     g = sns.lineplot(data = df, x="Release Code", y = aggregate_stat, hue="corpus")
+    sns.move_legend(g, "upper left", bbox_to_anchor=(1, 1))
     fig = g.get_figure()
     fig.savefig(png_out_path, dpi=300, bbox_inches = "tight")
     
@@ -66,28 +78,32 @@ def graph_corpus_change(metadata_paths_dicts, png_out_path, aggregate_stat = "wo
 
 if __name__ == "__main__":
 
-    release_dicts_no_wcount = [
-        {"release_code": "2019.1.1", "path": "D:/Corpus Stats/2019/OpenITI_metatdata_2019_1_1.csv"}
-    ]
+    # release_dicts_no_wcount = [
+    #     {"release_code": "2019.1.1", "path": "D:/Corpus Stats/2019/OpenITI_metatdata_2019_1_1.csv"}
+    # ]
 
-    release_dicts_all = [{"release_code": "2020.1.2", "path": "D:/Corpus Stats/2020/OpenITI_metadata_2020_1_2.csv"},
-                         {"release_code": "2020.2.3", "path": "D:/Corpus Stats/2020/OpenITI_metadata_2020-2-3_merged.csv"},
-                         {"release_code": "2021.1.4", "path": "D:/Corpus Stats/2021/OpenITI_metadata_2021-1-4_merged.csv"},
-                         {"release_code": "2021.2.5", "path": "D:/Corpus Stats/2021/OpenITI_metadata_2021-2-5_merged_wNoor.csv"},
-                         {"release_code": "2022.1.6", "path": "D:/Corpus Stats/2022/OpenITI_metadata_2022-1-6_merged.csv"},
-                         {"release_code": "2022.2.7", "path": "D:/Corpus Stats/2023/OpenITI_metadata_2022-2-7_merged.csv"},
-                         {"release_code": "2023.1.8", "path": "D:/Corpus Stats/2023/OpenITI_metadata_2023-1-8.csv"}
+    release_dicts_all = [{"release_code": "2020.1.2", "path": "meta_csvs/OpenITI_metadata_2020_1_2.csv"},
+                         {"release_code": "2020.2.3", "path": "meta_csvs/OpenITI_metadata_2020-2-3_merged.csv"},
+                         {"release_code": "2021.1.4", "path": "meta_csvs/OpenITI_metadata_2021-1-4_merged.csv"},
+                         {"release_code": "2021.2.5", "path": "meta_csvs/OpenITI_metadata_2021-2-5_merged.csv"},
+                         {"release_code": "2022.1.6", "path": "meta_csvs/OpenITI_metadata_2022-1-6_merged.csv"},
+                         {"release_code": "2022.2.7", "path": "meta_csvs/OpenITI_metadata_2022-2-7_merged.csv"},
+                         {"release_code": "2023.1.8", "path": "meta_csvs/OpenITI_metadata_2023-1-8.csv"},
+                         {"release_code": "2025.1.9", "path": "meta_csvs/OpenITI_metadata_2025-1-9.tsv"}
                          ]
     
     # Graph for word counts
-    graph_corpus_change(release_dicts_all, "corpus_growth_words_pre1000.png")
+    graph_corpus_change(release_dicts_all, "graphs_2026/corpus_growth_words_pre1000.png")
 
     # Graph for book and author counts
     agg_types = ["books", "authors"]
-    release_dicts_no_wcount.extend(release_dicts_all)
+    # release_dicts_no_wcount.extend(release_dicts_all)
     for agg_type in agg_types:
-        graph_corpus_change(release_dicts_no_wcount, "corpus_growth_{}_pre1000.png".format(agg_type), aggregate_stat=agg_type)
+        graph_corpus_change(release_dicts_all, "graphs_2026/corpus_growth_{}_pre1000.png".format(agg_type), aggregate_stat=agg_type)
+        graph_corpus_change(release_dicts_all, "graphs_2026/corpus_growth_{}_langs.png".format(agg_type), aggregate_stat=agg_type, comp_lang=True)
+        graph_corpus_change(release_dicts_all, "graphs_2026/corpus_growth_{}.png".format(agg_type), aggregate_stat=agg_type, add_date_filter=None)
 
-    
+        
+
 
 
