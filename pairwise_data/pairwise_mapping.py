@@ -126,6 +126,60 @@ class pairwiseMapper():
                 )
             pairwise_dict[book_uri] = pairwise_list
 
+    def _concat_pairwise_data(self, main_uri):
+        """Take a main_uri fetch the pairwise data from the dict and use it to load and concatenate the
+        relevant data. Rename cols so that they will work with the openitiTextMs funcs
+        main_uri: book_uri
+        returns: list of dicts {"ms": main_ms, "start_offset": start, "end_offset": end, "book2": aligned_book, "ms2": aligned_ms}"""
+
+        pairwise_paths = self.pairwise_path_dict[main_uri]
+        ooncat_df = pd.DataFrame()
+        for path in pairwise_paths:
+            df = pd.read_csv(path["pairwise_path"], sep="\t")
+            
+            # Select and rename relevant cols
+            pos = path[pos]
+            if pos == 2:
+                book_cols = ["seq2", "begin2", "end2", "series_b1", "seq"]
+                df = df[book_cols]
+                df = df.rename(columns={"seq2": "ms", "begin2": "start_offset", "end2": "end_offset", "series_b1": "book2", "seq": "ms2"})
+            if pos == 1:
+                book_cols = ["seq", "begin", "end", "series_b2", "seq2"]
+                df = df[book_cols]
+                df = df.rename(columns={"seq": "ms", "begin": "start_offset", "end": "end_offset", "series_b2": "book2", "seq2": "ms2"})
+            
+            concat_df = pd.concat([concat_df, df])
+            
+            # Return list of dicts
+            return concat_df.to_dict("records")
+
+    def _write_meta_mapper(self, main_uri, reuse_map, token_map, out_dir, col_1="variable_name", col_2="label"):
+        
+        meta_mapper = []
+        # Append the units to the meta_mapper
+        if token_offset:
+            unit_label = "tokens"
+        else:
+            unit_label = "characters"
+        units_map = {col_1: "offset_units", col_2: unit_label}
+        meta_mapper.append(units_map)
+
+        # Use the mapping_df to fetch all book ids
+        book_ids = reuse_map["book2"].drop_duplicates().to_list()
+        book_ids += main_text
+        for book_id in book_ids:
+            meta_mapper.append({
+                col_1: book_id,
+                col_2: ""
+            })
+        
+        meta_map_df = pd.DataFrame(meta_mapper)
+        csv_path = os.path.join(our_dir, "meta_mapper.csv")
+        meta_map_df.to_csv(csv_path, index=False, encoding='utf-8-sig')
+
+        return meta_map_df
+
+
     def write_maps_for_uri(self, main_uri, out_dir, sections_levels=None, use_bio_sections=True, 
                             section_meta_mapper=True, general_meta_mapper=True, token_map=False):
         """Write a map for a specific URI
@@ -140,6 +194,28 @@ class pairwiseMapper():
         token_map: if True the char offsets in the pairwise are converted to tokens, and section offsets are calculated
                     as tokens. Useful for more understable graphs"""
         
+        # Initialise the OpenITI text object
+        text_path = self.main_text_path_dict[main_uri]
+        openiti_obj = openitiTextMs(text_path)
+
+        # Write the section map
+        section_map_path = os.path.join(out_dir, "section_map.csv")
+        openiti_obj.section_offset_df(levels_count=section_levels, include_bios=use_bio_sections, 
+                                        csv_path=section_map_path, meta_cols=section_meta_mapper, token_offset=token_map)
+
+        # Concat the relevant pairwise data and produce and write offsets
+        reuse_map_path = os.path.join(out_dir, "reuse_map.csv")
+        concat_data = self._concat_pairwise_data(main_uri)
+        mapping_df = openiti_obj.full_ms_offset_df(concat_data, csv_path=reuse_map_path, token_offset=token_map)
+        
+        # Use the map to write a general_meta_mapper
+        if general_meta_mapper:
+            self._write_meta_mapper(main_uri, reuse_map, token_map, our_dir)
+
+
+            
+
+        
 
     def map_main_uris(self, sections_levels=None, use_bio_sections=True, 
                     section_meta_mapper=True, general_meta_mapper=True, token_map=False):
@@ -153,6 +229,16 @@ class pairwiseMapper():
         token_map: if True the char offsets in the pairwise are converted to tokens, and section offsets are calculated
                     as tokens. Useful for more understable graphs"""
         
+        # Check all paths have been created
+        self._initialise_output_dirs()
+
+        for main_uri in self.main_text_uris:
+            print(f"Writing maps for {main_uri}")
+            maps_path = os.path.join(self.out_dir, main_uri)
+            self.write_maps_for_uri(main_uri, maps_path, section_levels=section_levels, use_bio_sections=use_bio_sections,
+                                    section_meta_mapper=section_meta_mapper, general_meta_mapper=general_meta_mapper,
+                                    token_map=token_map)
+
                 
 
 
