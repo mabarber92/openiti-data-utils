@@ -6,7 +6,7 @@ import os
 # Should have ability to export a section map for annotation and then
 # reload on that - so on init check if the section map already exists
 
-class pairwise_mapper():
+class pairwiseMapper():
     """Take a directory of pairwise tsvs and produce a series of mapping files
     that map offsets into the text as a whole and corresponding section maps
     exports a csv section map reuse map and uri meta mapper that together can be
@@ -126,7 +126,33 @@ class pairwise_mapper():
                 )
             pairwise_dict[book_uri] = pairwise_list
 
+    def write_maps_for_uri(self, main_uri, out_dir, sections_levels=None, use_bio_sections=True, 
+                            section_meta_mapper=True, general_meta_mapper=True, token_map=False):
+        """Write a map for a specific URI
+        main_uri: book uri to be mapped - used to access text path and pairwise paths stored in pairwiseMapper
+        out_dir: directory into which the csv maps are written
+        section_levels: if None use all levels in the text, otherwise use up to level - e.g. 2 = [### |, ### ||]
+        use_bio_sections: if True, use biographical headers as sections, otherwise exclude them from the section map
+        section_meta_mapper: ensure the section mapper csv contains a column for manual mapping of metadata to be used by
+                            graphs
+        general_meta_mapper: a separate csv used for mapping metadata to be used by a graph (book uris, offset units)
+                            Columns: [variable_name, label_mapping]
+        token_map: if True the char offsets in the pairwise are converted to tokens, and section offsets are calculated
+                    as tokens. Useful for more understable graphs"""
+        
 
+    def map_main_uris(self, sections_levels=None, use_bio_sections=True, 
+                    section_meta_mapper=True, general_meta_mapper=True, token_map=False):
+        """Write maps for all the main uris. For all main_uris stored in object
+                section_levels: if None use all levels in the text, otherwise use up to level - e.g. 2 = [### |, ### ||]
+        use_bio_sections: if True, use biographical headers as sections, otherwise exclude them from the section map
+        section_meta_mapper: ensure the section mapper csv contains a column for manual mapping of metadata to be used by
+                            graphs
+        general_meta_mapper: a separate csv used for mapping metadata to be used by a graph (book uris, offset units)
+                            Columns: [variable_name, label_mapping]
+        token_map: if True the char offsets in the pairwise are converted to tokens, and section offsets are calculated
+                    as tokens. Useful for more understable graphs"""
+        
                 
 
 
