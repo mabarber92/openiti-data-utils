@@ -3,6 +3,7 @@ from openiti.helper.ara import tokenize
 import re
 import os
 import pandas as pd
+from tqdm import tqdm
 
 class openitiTextMs():
     """A class for handling an OpenITI text as a group of milestones and applying various functions to it"""
@@ -49,6 +50,8 @@ class openitiTextMs():
         """Read out key stats if they are populated"""
         print(f"Text has a total of: {self.ms_total} milestones")
         print(f"Text milestones zfilled to: {self.zfill_len} characters")
+        print(f"Text is {len(self.mARkdown_text)} characters in length")
+        print(f"Text is {self.count_tokens(self.mARkdown_text)} tokens in length")
 
     def is_ms_marker(self, text):
         """Use the specified ms marker to identify if the text that is passed to the function is a ms marker"""
@@ -146,7 +149,7 @@ class openitiTextMs():
         if clean and text is not None:
             text = text_cleaner(text)
         if text is None:
-            print("Invalid ms given for text. Ms given: {number}")
+            print(f"Invalid ms given for text. Ms given: {number}")
             exit()
         return text
     
@@ -375,7 +378,7 @@ class openitiTextMs():
                 offset = self.get_clean_len(splits[:-1])
         return offset
 
-    def fetch_section_offsets_full(self, levels_count=None, include_bios=True clean=True, token_offset=False):
+    def fetch_section_offsets_full(self, levels_count=None, include_bios=True, clean=True, token_offset=False):
         """Fetch raw offsets for all sections in the OpenITI text
         levels_count: number of levels deep to return 3 == |||, None == |+, 0 == only fetch bio offsets
         include_bios: return biographical headers from within the text
@@ -399,12 +402,12 @@ class openitiTextMs():
         offset_data = []
 
         # Loop through section splits - if text matches section then process offset
-        for idx, section_split in tqdm(section_splits):
+        for idx, section_split in tqdm(enumerate(section_splits)):
             if re.match(regex, section_split):
                 
                 # Process the milestone and offset
                 level_count = section_split.count("|")
-                if level_count = 0:
+                if level_count == 0:
                     bio = True
                 else:
                     bio= False
@@ -463,10 +466,10 @@ class openitiTextMs():
             if levels_count is None:
                 header_marker = self.header_marker + "+"
             else:
-                header_marker = self.header_marker * levels_count
+                header_marker = self.header_marker + fr"{{,{levels_count}}}"
             
             regexes.append(self.section_base + header_marker + text_regex)
-        section_regex = self.section_base + self.header_marker*levels_co
+
         if include_bios:
             regexes.append(self.section_base + self.bio_marker + text_regex)
         regex = "|".join(regexes)
@@ -501,7 +504,7 @@ class openitiTextMs():
                 end_offset = prev_tokens + self.char_to_tok_offset_clean(ms, ms_offset["end_offset"])
 
             else:
-                prev_ms = self.fetch_milestones(list(range(ms_offset["ms"])), clean=clean, join=True)
+                prev_ms = self.fetch_milestones(list(range(1, ms_offset["ms"])), clean=clean, join=True)
                 start_offset = len(prev_ms) + ms_offset["start_offset"]
                 end_offset = start_offset + ms_offset["end_offset"]
 
@@ -521,14 +524,14 @@ class openitiTextMs():
         
         return full_offsets
 
-    def full_ms_offset_df(self, ms_offsets, clean=True, csv_path, token_offset=False):
+    def full_ms_offset_df(self, ms_offsets, clean=True, csv_path=None, token_offset=False):
         """Using ms offsets produce full offsets into a text as a df
         ms_offsets: list of dicts [{"ms": 1, "start_offset": 200, "end_offset": 300, other_key_values}]
         csv_path: if set, export df as csv to the path
         returns: df with columns: "start_offset", "end_offset", other_keys"""
 
         offsets_dicts = self.build_full_ms_offsets(ms_offsets, clean=clean, token_offset=token_offset)
-        df = pd.DataFrame(offsets_dict)
+        df = pd.DataFrame(offsets_dicts)
 
         if csv_path is not None:
             df.to_csv(csv_path, index=False, encoding='utf-8-sig')

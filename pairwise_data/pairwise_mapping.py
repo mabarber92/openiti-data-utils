@@ -1,5 +1,6 @@
-from openiti_texts.openitiTexts import openitiTextms, openitiCorpus
+from openiti_texts.openitiTexts import openitiTextMs, openitiCorpus
 import os
+import pandas as pd
 # Codes to create raw offset mappings from pairwise data
 
 # Need to use openitiTexts full_ms_offsets_df and section_offset_df
@@ -12,7 +13,7 @@ class pairwiseMapper():
     exports a csv section map reuse map and uri meta mapper that together can be
     used to product graphs of pairwise at the token or char level"""
 
-    def __init__(self, main_text_uris: type(list), corpus_dir: type(str), pairwise_dir: type(str), out_dir: type(str) meta_path=None, load_from_corpus=True):
+    def __init__(self, main_text_uris: type(list), corpus_dir: type(str), pairwise_dir: type(str), out_dir: type(str), meta_path=None, load_from_corpus=True):
         """Initialise with core data
         main_text_uris: book uris - used to fetch data from a corpus folder - for each main text, a map against all relevant pairwise files
                         will be created - if None - then the pairwise_dir will be used to fetch a list of all possible texts
@@ -30,6 +31,7 @@ class pairwiseMapper():
 
         self.main_text_path_dict = self._initialise_texts(main_text_uris, corpus_dir, meta_path, load_from_corpus)
         self.main_text_uris = list(self.main_text_path_dict.keys())
+        print(f"Initialised pairwiseMapper with {len(self.main_text_uris)} main texts for mapping")
         self.out_dir = out_dir
 
         self.pairwise_path_dict = self._id_pairwise_for_main(pairwise_dir)
@@ -39,13 +41,16 @@ class pairwiseMapper():
         """Check that all main_text_uris have corresponding texts in the corpus dir, or build a path list of loading from corpus"""
         # If loading from corpus - we use the corpus object to create relevant text paths for the main texts
         if load_from_corpus:
+            if meta_path is None:
+                print("ERROR: meta_path is set to None. To load from corpus provide a path to metadata")
+                exit()
             corpus_object = openitiCorpus(meta_path, corpus_dir)
             path_dict = corpus_object.fetch_path_for_books(main_text_uris, return_dict=True)
             return path_dict
         
         # Otherwise we check that all supplied main_text_uris have a corresponding path in corpus_dir and return paths
         else:
-            return self._check_and_return_paths()
+            return self._check_and_return_paths(main_text_uris, corpus_dir)
 
     def _check_and_return_paths(self, book_uris, corpus_dir):
         """Go through book URIs, check that every URI has a corresponding path, check with user if match isn't found and return matching paths"""
@@ -71,13 +76,15 @@ class pairwiseMapper():
 
         return selected_paths
     
-    def _initialise_output_dirs(self):
+    def _initialise_output_dirs(self, out_dir=None):
         """When processing data mapping we use this func to check and create relevant output files"""
-        
+        if out_dir is None:
+            out_dir = self.out_dir
         for text in self.main_text_uris:            
-            out_path = os.path.join(self.out_dir, text)
+            out_path = os.path.join(out_dir, text)
             if not os.path.exists(out_path):
-                os.mkdir()
+                os.mkdir(out_path)
+        return out_dir
 
     def _pairwise_file_to_uris(self, pairwise_filename, splitter = "_"):
         """Split a pairwise_filename on _ and reduce to a book_uri return as list
@@ -125,6 +132,8 @@ class pairwiseMapper():
                     "pos": pos}
                 )
             pairwise_dict[book_uri] = pairwise_list
+        
+        return pairwise_dict
 
     def _concat_pairwise_data(self, main_uri):
         """Take a main_uri fetch the pairwise data from the dict and use it to load and concatenate the
@@ -133,12 +142,12 @@ class pairwiseMapper():
         returns: list of dicts {"ms": main_ms, "start_offset": start, "end_offset": end, "book2": aligned_book, "ms2": aligned_ms}"""
 
         pairwise_paths = self.pairwise_path_dict[main_uri]
-        ooncat_df = pd.DataFrame()
+        concat_df = pd.DataFrame()
         for path in pairwise_paths:
-            df = pd.read_csv(path["pairwise_path"], sep="\t")
+            df = pd.read_csv(path["pairwise_file"], sep="\t")
             
             # Select and rename relevant cols
-            pos = path[pos]
+            pos = path["pos"]
             if pos == 2:
                 book_cols = ["seq2", "begin2", "end2", "series_b1", "seq"]
                 df = df[book_cols]
@@ -150,14 +159,14 @@ class pairwiseMapper():
             
             concat_df = pd.concat([concat_df, df])
             
-            # Return list of dicts
-            return concat_df.to_dict("records")
+        # Return list of dicts
+        return concat_df.to_dict("records")
 
     def _write_meta_mapper(self, main_uri, reuse_map, token_map, out_dir, col_1="variable_name", col_2="label"):
         
         meta_mapper = []
         # Append the units to the meta_mapper
-        if token_offset:
+        if token_map:
             unit_label = "tokens"
         else:
             unit_label = "characters"
@@ -166,7 +175,7 @@ class pairwiseMapper():
 
         # Use the mapping_df to fetch all book ids
         book_ids = reuse_map["book2"].drop_duplicates().to_list()
-        book_ids += main_text
+        book_ids += [main_uri]
         for book_id in book_ids:
             meta_mapper.append({
                 col_1: book_id,
@@ -174,7 +183,7 @@ class pairwiseMapper():
             })
         
         meta_map_df = pd.DataFrame(meta_mapper)
-        csv_path = os.path.join(our_dir, "meta_mapper.csv")
+        csv_path = os.path.join(out_dir, "meta_mapper.csv")
         meta_map_df.to_csv(csv_path, index=False, encoding='utf-8-sig')
 
         return meta_map_df
@@ -196,25 +205,28 @@ class pairwiseMapper():
         
         # Initialise the OpenITI text object
         text_path = self.main_text_path_dict[main_uri]
-        openiti_obj = openitiTextMs(text_path)
+        openiti_obj = openitiTextMs(text_path, report=True)
 
         # Write the section map
         section_map_path = os.path.join(out_dir, "section_map.csv")
-        openiti_obj.section_offset_df(levels_count=section_levels, include_bios=use_bio_sections, 
-                                        csv_path=section_map_path, meta_cols=section_meta_mapper, token_offset=token_map)
+        if section_meta_mapper:
+            meta_cols = ["label"]
+        openiti_obj.section_offset_df(levels_count=sections_levels, include_bios=use_bio_sections, 
+                                        csv_path=section_map_path, meta_cols=meta_cols, token_offset=token_map)
 
         # Concat the relevant pairwise data and produce and write offsets
         reuse_map_path = os.path.join(out_dir, "reuse_map.csv")
         concat_data = self._concat_pairwise_data(main_uri)
+        
         mapping_df = openiti_obj.full_ms_offset_df(concat_data, csv_path=reuse_map_path, token_offset=token_map)
         
         # Use the map to write a general_meta_mapper
         if general_meta_mapper:
-            self._write_meta_mapper(main_uri, reuse_map, token_map, our_dir)
+            self._write_meta_mapper(main_uri, mapping_df, token_map, out_dir)
         
 
     def map_main_uris(self, sections_levels=None, use_bio_sections=True, 
-                    section_meta_mapper=True, general_meta_mapper=True, token_map=False):
+                    section_meta_mapper=True, general_meta_mapper=True, token_map=False, out_dir=None):
         """Write maps for all the main uris. For all main_uris stored in object
                 section_levels: if None use all levels in the text, otherwise use up to level - e.g. 2 = [### |, ### ||]
         use_bio_sections: if True, use biographical headers as sections, otherwise exclude them from the section map
@@ -225,13 +237,13 @@ class pairwiseMapper():
         token_map: if True the char offsets in the pairwise are converted to tokens, and section offsets are calculated
                     as tokens. Useful for more understable graphs"""
         
-        # Check all paths have been created
-        self._initialise_output_dirs()
+        # Check all paths have been created - using out_dir or default out_dir if it is set to none
+        out_dir = self._initialise_output_dirs(out_dir)
 
         for main_uri in self.main_text_uris:
             print(f"Writing maps for {main_uri}")
-            maps_path = os.path.join(self.out_dir, main_uri)
-            self.write_maps_for_uri(main_uri, maps_path, section_levels=section_levels, use_bio_sections=use_bio_sections,
+            maps_path = os.path.join(out_dir, main_uri)
+            self.write_maps_for_uri(main_uri, maps_path, sections_levels=sections_levels, use_bio_sections=use_bio_sections,
                                     section_meta_mapper=section_meta_mapper, general_meta_mapper=general_meta_mapper,
                                     token_map=token_map)
 
