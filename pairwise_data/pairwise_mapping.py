@@ -211,10 +211,6 @@ class pairwiseMapper():
         # Use the map to write a general_meta_mapper
         if general_meta_mapper:
             self._write_meta_mapper(main_uri, reuse_map, token_map, our_dir)
-
-
-            
-
         
 
     def map_main_uris(self, sections_levels=None, use_bio_sections=True, 

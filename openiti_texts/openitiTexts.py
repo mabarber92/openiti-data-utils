@@ -399,7 +399,7 @@ class openitiTextMs():
         offset_data = []
 
         # Loop through section splits - if text matches section then process offset
-        for idx, section_split in section_splits:
+        for idx, section_split in tqdm(section_splits):
             if re.match(regex, section_split):
                 
                 # Process the milestone and offset
@@ -490,7 +490,7 @@ class openitiTextMs():
         # df = df.sort_values(by=["ms", "start_offset"])
         # ms_offsets = df.to_dict("records")
         full_offsets = []
-        for ms_offset in ms_offsets:
+        for ms_offset in tqdm(ms_offsets):
 
             # Fetch and count len of all prev milestones
             if token_offset:
