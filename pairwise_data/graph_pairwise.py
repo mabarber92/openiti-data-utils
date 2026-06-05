@@ -53,7 +53,7 @@ class multireuseGraph():
                 data = None
             
             self.data_store[data_type] = data
-            print("Data store populated!")
+        print("Data store populated!")
 
 
 
@@ -90,7 +90,7 @@ class multireuseGraph():
         """Use a list of books and their positions on the y axis to add the labels"""
 
     def _sort_reuse_rows(self, reuse_data, sort_strategy):
-        
+        """Use reuse data to sort the data to appear on the y-axis according to specified sort strategy"""
         books = reuse_data.sort_values(by=["book2"])["book2"].drop_duplicates().to_list()
         if sort_strategy == "reuse":
             book_reuse_quan = {}
@@ -101,21 +101,25 @@ class multireuseGraph():
                     reuse_len = reuse["end_offset"] - reuse["start_offset"]
                     total_reuse += reuse_len
                 book_reuse_quan[book] = total_reuse
-            reordered = [k for k, v in sorted(book_reuse_quan.items(), key=lambda item: item[1])]
+            reordered = [k for k, v in sorted(book_reuse_quan.items(), key=lambda item: item[1], reverse=True)]
         if sort_strategy == "chron":
             reordered = books
         
         return reordered
 
 
-
-
     def _write_graph_patches(self, sort_strategy="chron"):
         """Write all patches for the graph
         sort_strategy: chron == sort y-axis rows by author death date | reuse == sort yaxis rows by quantity of reuse """
         reuse_data = self.data_store["reuse_map"]
+        
+        # Sort the data first - so we process the rows in the order desired order
         books = self._sort_reuse_rows(reuse_data, sort_strategy)
         print(books)
+
+        # TODO: Loop through each book - pass the data to the row writer to write the rows - log y-pos as we go
+
+        # After rows have been written write the ylabels using the function - from the book list and ypos
 
     def _write_section_maps(self, add_vlines=True, vline_height="-0.1"):
         """Add the section labels to the graph
