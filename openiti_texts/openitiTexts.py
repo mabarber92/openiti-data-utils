@@ -1,11 +1,12 @@
 from openiti.helper.funcs import read_text, text_cleaner
+from openiti.helper.ara import tokenize
 import re
 import os
 import pandas as pd
 
 class openitiTextMs():
     """A class for handling an OpenITI text as a group of milestones and applying various functions to it"""
-    def __init__ (self, file_path, report=False, pre_process_ms=True):
+    def __init__ (self, file_path, report=False, pre_process_ms=True, ms_tok_len=300):
         """Read the text into the object using a file. Store the fulltext and store the milestone splits
         as a special type of dictionary:
         {22: "...كتابة..."}
@@ -16,6 +17,9 @@ class openitiTextMs():
         self.section_base = r"### "
         self.header_marker = r"\|"
         self.bio_marker = r"\$+"
+
+        # Set the ms_len to allow for counting without measuring tok lens of every ms
+        self.ms_tok_len = ms_tok_len
 
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File {file_path} does not exist")
@@ -35,7 +39,11 @@ class openitiTextMs():
             self.report_stats()
         
         self.file_path = file_path
-      
+
+    def count_tokens(self, text):
+        """tokenize and count tokens in text"""
+        tokens, starts, ends = tokenize(text)
+        return len(tokens) 
     
     def report_stats(self):
         """Read out key stats if they are populated"""
@@ -220,6 +228,12 @@ class openitiTextMs():
 
         return text
 
+    def char_to_tok_offset_clean(self, ms_number, char_offset):
+        """Take an char offset into a milestone and convert it into a token_offset
+        Always counts from start of ms"""
+        text_before_offset = self.fetch_offset_clean(ms_number, end=char_offset)
+        return self.count_tokens(text_before_offset)
+
     def _check_ms_regex(self, ms_no, regex, return_index=None):
         """Fetch the ms text, check if regex is in the milestone
         return_index: the index of the match to return, if None return all matches as a list
@@ -361,7 +375,7 @@ class openitiTextMs():
                 offset = self.get_clean_len(splits[:-1])
         return offset
 
-    def fetch_section_offsets_full(self, levels_count=None, include_bios=True clean=True):
+    def fetch_section_offsets_full(self, levels_count=None, include_bios=True clean=True, token_offset=False):
         """Fetch raw offsets for all sections in the OpenITI text
         levels_count: number of levels deep to return 3 == |||, None == |+, 0 == only fetch bio offsets
         include_bios: return biographical headers from within the text
@@ -401,7 +415,10 @@ class openitiTextMs():
                 if clean:
                     prior_text = text_cleaner(prior_text)
 
-                offset = len(prior_text)
+                if token_offset:
+                    offset = self.count_tokens(prior_text)
+                else:
+                    offset = len(prior_text)
 
                 offset_data.append({
                     "heading": section_split,
@@ -412,10 +429,10 @@ class openitiTextMs():
         
         return offset_data
     
-    def section_offset_df(self, levels_count=None, include_bios=True, clean=True, csv_path=None, meta_cols=None):
+    def section_offset_df(self, levels_count=None, include_bios=True, clean=True, csv_path=None, meta_cols=None, token_offset=False):
         """Process section offsets and return them as a df - optionally export csv
         meta_cols : add cols with empty values with given strings in list"""
-        offset_data = self.fetch_section_offsets_full(levels_count, include_bios, clean)
+        offset_data = self.fetch_section_offsets_full(levels_count, include_bios, clean, token_offset=token_offset)
 
         df = pd.DataFrame(offset_data)
 
@@ -456,10 +473,11 @@ class openitiTextMs():
         
         return regex
 
-    def build_full_ms_offsets(self, ms_offsets, clean=True):
+    def build_full_ms_offsets(self, ms_offsets, clean=True, token_offset=False):
         """Use a list of ms_offsets to create a list of dictionaries of raw
         offsets
         ms_offsets: a list of dicts [{"ms": 1, "start_offset": 200, "end_offset": 300, other_key_value_pairs}]
+        token_offsets: True/False - convert the char offset to a token offset NOTE CURRENTLY ONLY RETURNS A CLEANED TOKEN OFFSET - NEEDS REFACTOR
         returns: list of dicts where each is a raw offset [{"start_offset": 600, "end_offset": 700, other_key_value_pairs}]"""
 
         # Check if we've processed the ms_dict - if not create one
@@ -475,9 +493,17 @@ class openitiTextMs():
         for ms_offset in ms_offsets:
 
             # Fetch and count len of all prev milestones
-            prev_ms = self.fetch_milestones(list(range(ms_offset["ms"])), clean=clean, join=True)
-            start_offset = len(prev_ms) + ms_offset["start_offset"]
-            end_offset = start_offset + ms_offset["end_offset"]
+            if token_offset:
+                # Note - currently no option to fetch unclean counts here.
+                ms = int(ms_offset["ms"])
+                prev_tokens = (ms-1) * self.ms_tok_len
+                start_offset = prev_tokens + self.char_to_tok_offset_clean(ms, ms_offset["start_offset"])
+                end_offset = prev_tokens + self.char_to_tok_offset_clean(ms, ms_offset["end_offset"])
+
+            else:
+                prev_ms = self.fetch_milestones(list(range(ms_offset["ms"])), clean=clean, join=True)
+                start_offset = len(prev_ms) + ms_offset["start_offset"]
+                end_offset = start_offset + ms_offset["end_offset"]
 
             
             offset_dict = {
@@ -495,13 +521,13 @@ class openitiTextMs():
         
         return full_offsets
 
-    def full_ms_offset_df(self, ms_offsets, clean=True, csv_path):
+    def full_ms_offset_df(self, ms_offsets, clean=True, csv_path, token_offset=False):
         """Using ms offsets produce full offsets into a text as a df
         ms_offsets: list of dicts [{"ms": 1, "start_offset": 200, "end_offset": 300, other_key_values}]
         csv_path: if set, export df as csv to the path
         returns: df with columns: "start_offset", "end_offset", other_keys"""
 
-        offsets_dicts = self.build_full_ms_offsets(ms_offsets, clean=clean)
+        offsets_dicts = self.build_full_ms_offsets(ms_offsets, clean=clean, token_offset=token_offset)
         df = pd.DataFrame(offsets_dict)
 
         if csv_path is not None:
@@ -738,14 +764,27 @@ class openitiCorpus():
         """Take the values of the path dict and return them as a list of paths"""
         return list(self.path_dict.values())
     
-    def fetch_path_for_books(self, book_uris):
-        """a list of uris returns a list of paths"""
+    def fetch_path_for_books(self, book_uris, return_as_list=False, return_dict=False):
+        """a list of uris returns a list of paths
+        Return dicts returns the full dict structure"""
         if type(book_uris) == str:
-            return self.path_dict[book_uris]
+            file_path = self.path_dict[book_uris]
+            if return_dict:
+                file_path = {book_uris : file_path}
+            elif return_as_list:
+                file_path = [file_path]
+            return file_path
         elif type(book_uris) == list:
-            file_paths = []
+            if return_dict:
+                file_paths = {}
+            else:
+                file_paths = []
+
             for book in book_uris:
-                file_paths.append(self.path_dict[book])
+                if return_dicts:
+                    file_paths[book] = self.path_dict[book]
+                else:
+                    file_paths.append(self.path_dict[book])
             return file_paths
     
     def reassign_paths(self, uri_path_dict, allow_new_uris=False):
