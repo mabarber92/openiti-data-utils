@@ -112,10 +112,10 @@ class multireuseGraph():
                 
                 if len(meta_map) > 0:
                     updated_labels.append(meta_map[0])
-                    print(meta_map)
+                    
                 else:
                     label = label.replace(".", "\n")
-                    print(label)
+                    
                     updated_labels.append(label)
         else:
             updated_labels = label_list.copy()
@@ -191,27 +191,55 @@ class multireuseGraph():
         # Return patch_collection in case we need to make edits later
         return patch_collection
 
-    def _calculate_height_from_decimal(self, decimal_height, pos):
-        """Use a decimal (a percentage) to produce new height data that represents the data within the graph itself
-        pos: top - move to top of the graph, bottom - move to bottom of graph
-        TODO: Test this logic with top and bottom config - to check it draws as expected - ISSUES HERE NEED RESOLUTION"""
-
+    def _calculate_height_from_decimal(self, decimal_height):
+        """Convert a decimal proportion into an height relative to the graph data"""
         act_height = self.ax_height*decimal_height
-        if decimal_height < 0: 
-            if pos=='bottom':
-                act_height = 1 - act_height
-            else:
-                act_height = self.ax_height+act_height
-                self.ax_height = act_height
-        else:
-            if pos == 'top':
-                act_height = self.ax_height-act_height
-                self.ax_height = act_height
-        
-        return act_height    
 
-    def _write_section_maps(self, add_vlines=True, vline_start=-0.1, vline_height=0, heading_levels=None, exclude_bios=False, 
-                            add_labels=True, pos='top'):
+    def _add_section_lines(self, x_pos, outside_axis, inside_axis, pos, keep_offset_scale=True):
+        """Use a list of x positions, and floats for proportion of data outside axis and inside axis to add vlines,
+        and a horizonal line to add the section annotation.
+        x_pos: list of values along x axis for position of vlines
+        outside_axis: how far outside of the axis should the line be (as a decimal representation of the data 0.1 == lines 10% length of total data)
+        inside_axis: how far into the graph should the lines be (as a decimal representation of the data 0.1 == lines 10% length of total data inside graph)
+        pos: position of section lines - 'top' == above graph, 'bottom' == below graph
+        keep_offset_scale: if True, retain a measure of the number of tokens/chars into text on the axis. If True and pos == 'bottom' - token scale is moved
+                            to the top of the graph
+        TODO: Add option for hierachical section shading
+
+        Use a decimal (a percentage) to produce new height data that represents the data within the graph itself
+        pos: top - move to top of the graph, bottom - move to bottom of graph
+        TODO: Test this logic with top and bottom config - to check it draws as expected - ISSUES HERE NEED RESOLUTION
+        Need to return to this and reappraise logic as confounding two factors"""
+
+        # Calculate line top and bottom depending on pos
+        if pos == 'bottom':
+            bottom = 1 - (outside_axis*self.ax_height)
+            top = inside_axis*self.ax_height
+            h_line_pos = 0
+        if pos == 'top':
+            bottom = self.ax_height - (inside_axis*self.ax_height)
+            top = self.ax_height + (outside_axis*self.ax_height)
+            h_line_pos = self.ax_height
+        
+        # If keep_offset_scale and 'bottom' - move the scale to the top - otherwise remove axis
+        if keep_offset_scale:
+            if pos == 'bottom':
+                self.ax.xaxis.tick_top()
+        else:
+            self.ax.xaxis.set_visible(False)
+        
+        # Draw a horizontal line for the start of the section labelling
+        self.ax.axhline(h_line_pos, color='black')
+        
+        # Add the vlines
+        self.ax.vlines(x_pos, bottom, top, color='black', linewidth=0.5)
+
+        # Reset plot ylims to make the data visible - taking maximum top and bottom of the data
+        self.ax.set_ylim(min([0, bottom]), max([self.ax_height, top]))
+
+
+    def _write_section_maps(self, add_vlines=True, vline_start=0.1, vline_height=0, heading_levels=None, exclude_bios=False, 
+                            add_labels=True, pos='top', keep_offset_scale=True):
         """Add the section labels to the graph
         add_vlines: add vlines as well as the labels to the x-axis
         vline_start: position on graph (as percentage of data to start the vline) - -0.1 = start below the xaxis, 10% of total height of graph
@@ -221,15 +249,12 @@ class multireuseGraph():
         heading_levels: which heading levels to use as list [1,2] - use levels 1 and 2 - if None, use all in the data
         add_labels: add labels to the xaxis based on labels in the data
         pos: 'top' - labels and section markers at the top of the graph, 'bottom' labels and sections markers at the bottom of the graph
+        keep_offset_scale: keep the scale in chars or tokens, position will be altered based on the pos of the section labels
         """
         section_map = self.data_store["section_map"]
         if section_map is None:
             print("Cannot add vlines for sections without sections")
         else:
-            # Calculate the actual height of the vlines - taking into account desired position
-            vline_start = self._calculate_height_from_decimal(vline_start, pos)
-            vline_height = self._calculate_height_from_decimal(vline_height, pos)
-            
             # Filter the data based on level and bio
             if heading_levels is not None:
                 section_map = section_map[section_map["level"].isin(heading_levels)]
@@ -239,13 +264,7 @@ class multireuseGraph():
             # Add vlines using remaining data
             if add_vlines:
                 section_pos = section_map["offset"].values.tolist()
-                
-                # ADD: Line thickness reduction, ability to shade based on heading level
-                self.ax.vlines(section_pos, vline_start, vline_height, color='black')
-            # Add labels using remaining data - if bottom we remove tokens/chars from axis and change label
-            
-            # Reset ylim after changes to account for changes in chart height
-            self.ax.set_ylim(0, self.ax_height)
+                self._add_section_lines(section_pos, vline_start, vline_height, pos=pos, keep_offset_scale=keep_offset_scale)
 
     def _calculate_set_xlim(self, end_marker="text_end"):
         """From data infer xlims"""
@@ -273,6 +292,7 @@ class multireuseGraph():
         self.fig = plt.figure(figsize=figsize)
         self.ax = self.fig.add_subplot(1, 1, 1)
         self.ax_height=0
+        self.ax_bottom=0
 
         patch_collection = self._write_graph_patches(row_gap=row_gap, sort_strategy=sort_strategy)
         self._calculate_set_xlim()
