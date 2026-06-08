@@ -13,5 +13,8 @@ data_dir = "./data/outputs/0375AnonymousTranslator.TarikhCalamUrusiyus"
 # pairwise_mapper.map_main_uris(sections_levels=2, out_dir = "./data/char_outputs/")
 
 multireuse_graph = multireuseGraph(data_dir)
-multireuse_graph._write_graph_patches(sort_strategy="chron")
-multireuse_graph._write_graph_patches(sort_strategy="reuse")
+multireuse_graph.create_reuse_graph(sort_strategy="chron")
+multireuse_graph.fig.savefig("chron_test.png", bbox_inches="tight", dpi=300)
+
+multireuse_graph.create_reuse_graph(sort_strategy="reuse")
+multireuse_graph.fig.savefig("reuse_test.png", bbox_inches="tight", dpi=300)

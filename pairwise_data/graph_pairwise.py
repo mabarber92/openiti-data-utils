@@ -2,6 +2,9 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import os
 import pandas as pd
+from matplotlib.patches import Rectangle
+import matplotlib.patches as mpatches
+from matplotlib.collections import PatchCollection
 
 # Ensure robust enough to work with just a reuse map and nothing else - also need to allow for section selection - via another filter csv? - or a keep col in the section csv
 
@@ -62,7 +65,7 @@ class multireuseGraph():
     def _map_metadata(self):
         """Once we have a graph object, we rewrite any labels for which we have metadata"""
 
-    def _create_rectangle(self, start, end, current_height, height_increase, annotation_box=False):
+    def _create_rectangle(self, start, end, current_height, height, annotation_box=False):
         """Use data about start, end position and height to create a rectangle using that data
         annotation_box: allows us to use the same func to draw an annotation box around interesting data"""
         
@@ -78,16 +81,48 @@ class multireuseGraph():
             linewidth = None
             
 
-        rect = Rectangle(xy, width, height_increase, facecolor='none', linestyle=linestyle, edgecolor='black', linewidth=linewidth)
+        rect = Rectangle(xy, width, height, facecolor='none', linestyle=linestyle, edgecolor='black', linewidth=linewidth)
         return rect
 
-    def _write_patch_row(self, row_data, y_pos, row_height):
+    def _write_patch_row(self, row_data, v_bottom, row_height):
         """Write a row of patches for one book
         row_data: all data by one book to be populated to the row"""
+        row_patches = []
+        row_dicts = row_data.to_dict('records')
+
+        for row in row_dicts:
+            rect = self._create_rectangle(row["start_offset"], row["end_offset"], v_bottom, row_height)
+            row_patches.append(rect)
+        
+        return row_patches
+
     
 
     def _add_book_labels(self, label_list, y_pos_list):
         """Use a list of books and their positions on the y axis to add the labels"""
+
+        meta_mapper = self.data_store["meta_mapper"]
+
+        if meta_mapper is not None:
+            updated_labels = []
+            for label in label_list:
+                meta_map = meta_mapper[meta_mapper["variable_name"] == label]["label"].dropna().values.tolist()
+                
+                if len(meta_map) > 0:
+                    updated_labels.append(meta_map[0])
+                    print(meta_map)
+                else:
+                    label = label.replace(".", "\n")
+                    print(label)
+                    updated_labels.append(label)
+        else:
+            updated_labels = label_list.copy()
+        
+        self.ax.set_yticks(y_pos_list, updated_labels)
+        
+
+
+
 
     def _sort_reuse_rows(self, reuse_data, sort_strategy):
         """Use reuse data to sort the data to appear on the y-axis according to specified sort strategy"""
@@ -108,18 +143,50 @@ class multireuseGraph():
         return reordered
 
 
-    def _write_graph_patches(self, sort_strategy="chron"):
+    def _write_graph_patches(self, sort_strategy="chron", row_gap=0.1):
         """Write all patches for the graph
-        sort_strategy: chron == sort y-axis rows by author death date | reuse == sort yaxis rows by quantity of reuse """
+        sort_strategy: chron == sort y-axis rows by author death date | reuse == sort yaxis rows by quantity of reuse
+        row_gap: percentage of the row height that will be used as a gap between each row - 0 === no gap between rows """
         reuse_data = self.data_store["reuse_map"]
         
         # Sort the data first - so we process the rows in the order desired order
         books = self._sort_reuse_rows(reuse_data, sort_strategy)
-        print(books)
+        
+        # Initialise starting parameters
+        height_increase = 100/len(books)
+        v_bottom = 0
+        label_pos = []
+        patch_list = []
 
-        # TODO: Loop through each book - pass the data to the row writer to write the rows - log y-pos as we go
+        # Loop through each book - pass the data to the row writer to write the rows - log y-pos as we go
+        for book in books:
+            # Get data
+            data = reuse_data[reuse_data["book2"] == book]
+            # Fetch row height
+            row_height = height_increase * (1-row_gap)
+            
+            # Write patches and add to patch_list
+            patches = self._write_patch_row(data, v_bottom, row_height)
+            patch_list.extend(patches)
 
-        # After rows have been written write the ylabels using the function - from the book list and ypos
+            # Add label pos
+            label_y = v_bottom + (row_height/2)
+            label_pos.append(label_y)
+
+            # Augment v_bottom
+            v_bottom += height_increase
+
+        
+        # Transform the patch list into a patch collection, add to axis
+        
+        patch_collection = PatchCollection(patch_list)
+        self.ax.add_collection(patch_collection)
+        self.ax.set_ylim(0, v_bottom)
+        # Add labels to axis
+        self._add_book_labels(books, label_pos)
+
+        # Return patch_collection in case we need to make edits later
+        return patch_collection
 
     def _write_section_maps(self, add_vlines=True, vline_height="-0.1"):
         """Add the section labels to the graph
@@ -127,18 +194,34 @@ class multireuseGraph():
         vline_height: percentage of total data used by vline - if 1 then vline will use the whole graph
                     negative numbers will draw the lines below the graph"""
     
-    def create_reuse_graph(self, row_gaps=0.1, figsize=None):
+    def _calculate_set_xlim(self, end_marker="text_end"):
+        """From data infer ylims"""
+        section_map=self.data_store["section_map"]
+        if section_map is not None:
+            end_pos = section_map[section_map["heading"] == end_marker]["offset"].tolist()[0]
+        else:
+            # If we lack a section map - take last offset in the reuse data
+            end_pos = self.data_store["reuse_map"]["offset_end"].max()
+        
+        # To do : Add ability to use this as a way to filter based on section header range
+
+        self.ax.set_xlim(0, end_pos)
+
+    def create_reuse_graph(self, sort_strategy='chron', row_gap=0.1, figsize=None):
         """Full func for handling graph writing
-        row_gaps: gaps between rows of data as percentage of the total graph 0 puts each row adjacent"""
+        row_gaps: gaps between rows of data as percentage of the total graph 0 puts each row adjacent
+        sort_strategy: strategy used to sort books on the yaxis - 'chron' : chronological sorting, oldest book at
+        bottom to newest book at top, 'reuse' : sort by quantity of reuse for each book based on the offsets"""
 
         # Run graph initiation
         if figsize is None:
             px = 1/plt.rcParams['figure.dpi']
-            figsize = (800*px, 1200*px)
-        fig = plt.figure(figsize=figsize)
-        ax = fig.add_subplot(1, 1, 1)
+            figsize = (1200*px, 800*px)
+        self.fig = plt.figure(figsize=figsize)
+        self.ax = self.fig.add_subplot(1, 1, 1)
 
-        patch_collection = self._write_graph_patches()
+        patch_collection = self._write_graph_patches(row_gap=row_gap, sort_strategy=sort_strategy)
+        self._calculate_set_xlim()
 
     def write_figure(self, image_path):
         """Allows us to write the figure after tweaking things - like adding annotation"""
