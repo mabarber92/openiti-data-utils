@@ -378,11 +378,12 @@ class openitiTextMs():
                 offset = self.get_clean_len(splits[:-1])
         return offset
 
-    def fetch_section_offsets_full(self, levels_count=None, include_bios=True, clean=True, token_offset=False):
+    def fetch_section_offsets_full(self, levels_count=None, include_bios=True, clean=True, token_offset=False, end_marker=None):
         """Fetch raw offsets for all sections in the OpenITI text
         levels_count: number of levels deep to return 3 == |||, None == |+, 0 == only fetch bio offsets
         include_bios: return biographical headers from within the text
         clean: apply OpenITI text_cleaner to the text - ensuring offsets are passim compliant
+        end_marker: text to use to mark the offset for the end of the text - if None, then do not add to output
         returns
         list of dicts, one dict for each heading: [{"heading": "heading text", 
                                                     "level": level_in_heirarchy, 
@@ -430,12 +431,26 @@ class openitiTextMs():
                     "offset": offset
                 })
         
+        if end_marker is not None:
+            if token_offset:
+                text_len = self.count_tokens(self.mARkdown_text)
+            else:
+                if clean:
+                    text = text_cleaner(self.mARkdown_text)
+                text_len = len(text)
+            offset_data.append({
+                "heading": end_marker,
+                "level": 1,
+                "bio": False,
+                "offset": text_len
+            })
+        
         return offset_data
     
-    def section_offset_df(self, levels_count=None, include_bios=True, clean=True, csv_path=None, meta_cols=None, token_offset=False):
+    def section_offset_df(self, levels_count=None, include_bios=True, clean=True, csv_path=None, meta_cols=None, token_offset=False, end_marker=None):
         """Process section offsets and return them as a df - optionally export csv
         meta_cols : add cols with empty values with given strings in list"""
-        offset_data = self.fetch_section_offsets_full(levels_count, include_bios, clean, token_offset=token_offset)
+        offset_data = self.fetch_section_offsets_full(levels_count, include_bios, clean, token_offset=token_offset, end_marker=end_marker)
 
         df = pd.DataFrame(offset_data)
 

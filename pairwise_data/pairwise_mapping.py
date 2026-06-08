@@ -212,7 +212,8 @@ class pairwiseMapper():
         if section_meta_mapper:
             meta_cols = ["label"]
         openiti_obj.section_offset_df(levels_count=sections_levels, include_bios=use_bio_sections, 
-                                        csv_path=section_map_path, meta_cols=meta_cols, token_offset=token_map)
+                                        csv_path=section_map_path, meta_cols=meta_cols, token_offset=token_map,
+                                         end_marker="text_end")
 
         # Concat the relevant pairwise data and produce and write offsets
         reuse_map_path = os.path.join(out_dir, "reuse_map.csv")
