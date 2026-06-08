@@ -14,7 +14,9 @@ data_dir = "./data/outputs/0375AnonymousTranslator.TarikhCalamUrusiyus"
 
 multireuse_graph = multireuseGraph(data_dir)
 multireuse_graph.create_reuse_graph(sort_strategy="chron")
+multireuse_graph._write_section_maps(vline_height=1, pos='bottom')
 multireuse_graph.fig.savefig("chron_test.png", bbox_inches="tight", dpi=300)
 
 multireuse_graph.create_reuse_graph(sort_strategy="reuse")
+multireuse_graph._write_section_maps(vline_height=1, pos='bottom')
 multireuse_graph.fig.savefig("reuse_test.png", bbox_inches="tight", dpi=300)

@@ -15,11 +15,13 @@ class multireuseGraph():
         """Initiate the graphing object using a directory to the mapping directory"""
 
         # Set the cols and filenames that the data needs for the graphing to work effectively - other cols are optional
-        self.data_cols = {"section_map": {"path": "section_map.csv", "cols": ["heading", "offset"]},
+        self.data_cols = {"section_map": {"path": "section_map.csv", "cols": ["heading", "offset", "level", "bio"]},
                       "reuse_map": {"path" : "reuse_map.csv", "cols": ["start_offset", "end_offset", "book2"]},
                       "meta_mapper": {"path": "meta_mapper.csv", "cols": ["variable_name", "label"]}}
         # Check and load the incoming data
         self._check_and_load_data(mapper_dir)
+
+        
     
     def _report_data_error(self, file_list, data_type, cols=None):
         """Func to handle the logic of populating files - if we have no reuse map we cannot proceed,
@@ -181,21 +183,72 @@ class multireuseGraph():
         
         patch_collection = PatchCollection(patch_list)
         self.ax.add_collection(patch_collection)
-        self.ax.set_ylim(0, v_bottom)
+        self.ax_height=v_bottom
+        self.ax.set_ylim(0, self.ax_height)
         # Add labels to axis
         self._add_book_labels(books, label_pos)
 
         # Return patch_collection in case we need to make edits later
         return patch_collection
 
-    def _write_section_maps(self, add_vlines=True, vline_height="-0.1"):
+    def _calculate_height_from_decimal(self, decimal_height, pos):
+        """Use a decimal (a percentage) to produce new height data that represents the data within the graph itself
+        pos: top - move to top of the graph, bottom - move to bottom of graph
+        TODO: Test this logic with top and bottom config - to check it draws as expected - ISSUES HERE NEED RESOLUTION"""
+
+        act_height = self.ax_height*decimal_height
+        if decimal_height < 0: 
+            if pos=='bottom':
+                act_height = 1 - act_height
+            else:
+                act_height = self.ax_height+act_height
+                self.ax_height = act_height
+        else:
+            if pos == 'top':
+                act_height = self.ax_height-act_height
+                self.ax_height = act_height
+        
+        return act_height    
+
+    def _write_section_maps(self, add_vlines=True, vline_start=-0.1, vline_height=0, heading_levels=None, exclude_bios=False, 
+                            add_labels=True, pos='top'):
         """Add the section labels to the graph
         add_vlines: add vlines as well as the labels to the x-axis
+        vline_start: position on graph (as percentage of data to start the vline) - -0.1 = start below the xaxis, 10% of total height of graph
+                    below the xaxis
         vline_height: percentage of total data used by vline - if 1 then vline will use the whole graph
-                    negative numbers will draw the lines below the graph"""
-    
+                    if 0, will draw from vline_start to xaxis
+        heading_levels: which heading levels to use as list [1,2] - use levels 1 and 2 - if None, use all in the data
+        add_labels: add labels to the xaxis based on labels in the data
+        pos: 'top' - labels and section markers at the top of the graph, 'bottom' labels and sections markers at the bottom of the graph
+        """
+        section_map = self.data_store["section_map"]
+        if section_map is None:
+            print("Cannot add vlines for sections without sections")
+        else:
+            # Calculate the actual height of the vlines - taking into account desired position
+            vline_start = self._calculate_height_from_decimal(vline_start, pos)
+            vline_height = self._calculate_height_from_decimal(vline_height, pos)
+            
+            # Filter the data based on level and bio
+            if heading_levels is not None:
+                section_map = section_map[section_map["level"].isin(heading_levels)]
+            if exclude_bios:
+                section_map = section_map[section_map["bio"] != True]
+            
+            # Add vlines using remaining data
+            if add_vlines:
+                section_pos = section_map["offset"].values.tolist()
+                
+                # ADD: Line thickness reduction, ability to shade based on heading level
+                self.ax.vlines(section_pos, vline_start, vline_height, color='black')
+            # Add labels using remaining data - if bottom we remove tokens/chars from axis and change label
+            
+            # Reset ylim after changes to account for changes in chart height
+            self.ax.set_ylim(0, self.ax_height)
+
     def _calculate_set_xlim(self, end_marker="text_end"):
-        """From data infer ylims"""
+        """From data infer xlims"""
         section_map=self.data_store["section_map"]
         if section_map is not None:
             end_pos = section_map[section_map["heading"] == end_marker]["offset"].tolist()[0]
@@ -219,6 +272,7 @@ class multireuseGraph():
             figsize = (1200*px, 800*px)
         self.fig = plt.figure(figsize=figsize)
         self.ax = self.fig.add_subplot(1, 1, 1)
+        self.ax_height=0
 
         patch_collection = self._write_graph_patches(row_gap=row_gap, sort_strategy=sort_strategy)
         self._calculate_set_xlim()
