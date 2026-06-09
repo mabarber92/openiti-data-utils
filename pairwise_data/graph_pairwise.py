@@ -5,6 +5,7 @@ import pandas as pd
 from matplotlib.patches import Rectangle
 import matplotlib.patches as mpatches
 from matplotlib.collections import PatchCollection
+import matplotlib as mpl
 
 # Ensure robust enough to work with just a reuse map and nothing else - also need to allow for section selection - via another filter csv? - or a keep col in the section csv
 
@@ -67,7 +68,7 @@ class multireuseGraph():
     def _map_metadata(self):
         """Once we have a graph object, we rewrite any labels for which we have metadata"""
 
-    def _create_rectangle(self, start, end, current_height, height, annotation_box=False):
+    def _create_rectangle(self, start, end, current_height, height, color='grey', annotation_box=False):
         """Use data about start, end position and height to create a rectangle using that data
         annotation_box: allows us to use the same func to draw an annotation box around interesting data"""
         
@@ -83,7 +84,7 @@ class multireuseGraph():
             linewidth = None
             
 
-        rect = Rectangle(xy, width, height, facecolor='none', linestyle=linestyle, edgecolor='black', linewidth=linewidth)
+        rect = Rectangle(xy, width, height, facecolor=color, linestyle=linestyle, edgecolor='black', linewidth=linewidth)
         return rect
 
     def _write_patch_row(self, row_data, v_bottom, row_height):
@@ -155,7 +156,7 @@ class multireuseGraph():
         books = self._sort_reuse_rows(reuse_data, sort_strategy)
         
         # Initialise starting parameters
-        height_increase = 100/len(books)
+        self.height_increase = 100/len(books)
         v_bottom = 0
         label_pos = []
         patch_list = []
@@ -165,7 +166,7 @@ class multireuseGraph():
             # Get data
             data = reuse_data[reuse_data["book2"] == book]
             # Fetch row height
-            row_height = height_increase * (1-row_gap)
+            row_height = self.height_increase * (1-row_gap)
             
             # Write patches and add to patch_list
             patches = self._write_patch_row(data, v_bottom, row_height)
@@ -176,12 +177,12 @@ class multireuseGraph():
             label_pos.append(label_y)
 
             # Augment v_bottom
-            v_bottom += height_increase
+            v_bottom += self.height_increase
 
         
         # Transform the patch list into a patch collection, add to axis
         
-        patch_collection = PatchCollection(patch_list)
+        patch_collection = PatchCollection(patch_list, color="black")
         self.ax.add_collection(patch_collection)
         self.ax_height=v_bottom
         self.ax.set_ylim(0, self.ax_height)
@@ -191,11 +192,147 @@ class multireuseGraph():
         # Return patch_collection in case we need to make edits later
         return patch_collection
 
-    def _calculate_height_from_decimal(self, decimal_height):
-        """Convert a decimal proportion into an height relative to the graph data"""
-        act_height = self.ax_height*decimal_height
+    def _get_level_heights(self, data, bottom, top):
+        level_count = len(data["level"].drop_duplicates())
+        section_patch_height = (top-bottom) / level_count
+        return section_patch_height, level_count
 
-    def _add_section_lines(self, x_pos, outside_axis, inside_axis, pos, keep_offset_scale=True):
+    def _add_overlay_annotations(self, annotation_list, font_size=8):
+
+        for annotation in annotation_list:
+            self.ax.text(annotation["x"], annotation["y"], annotation["label_text"], size = font_size, va=annotation["va"]
+                     )
+
+    def _calculate_shading(self, level_count, cmap_name="binary", alternate_shades=False, low_margin=0.15, high_margin=0.4):
+        """Create the shader that can be passed to the patch_collection for shading of sections
+        and alternating the shades of each section if desired
+        level_count: total number of levels in the text
+        cmap_name: cmap to initialise - best cmaps = sequential (e.g. 'binary', 'Greys')
+        alternate_shades: output a list of list of integers to allow for alternating of shading between each section
+        low_margin: fraction of the colormap to exclude at the light end
+        high_margin: fraction of the colormap to exclude at the dark end - increase to avoid overly dark shades
+        returns
+        mapping_index: per-level integer(s) to pass as the patch value for colormap lookup
+        cmap: initialised cmap to pass to the patch_collection
+        norm: Normalize instance that maps [0, total_shades-1] to [low_margin, 1-high_margin] in colormap space"""
+
+        mapping_index = []
+        current_index = 0
+        for i in range(level_count):
+            if alternate_shades:
+                mapping_index.append([current_index, current_index+1])
+                current_index += 2
+            else:
+                mapping_index.append(current_index)
+                current_index += 1
+
+        total_shades = current_index
+        cmap = mpl.colormaps[cmap_name]
+
+        # Derive vmin/vmax so that integer values [0, total_shades-1] map to [margin, 1-margin]
+        # in colormap space, keeping away from the harsh ends of sequential maps
+        if total_shades > 1:
+            shade_range = (total_shades - 1) / (1 - low_margin - high_margin)
+            vmin = -low_margin * shade_range
+            vmax = vmin + shade_range
+        else:
+            vmin, vmax = -low_margin, 1 + high_margin
+
+        norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
+        return mapping_index, cmap, norm
+
+    def _add_heirarchical_shading(self, data, bottom, top, pos, overlay_annotation=[1], alternate_shades=False, extend_shades=1):
+        """"overlay_annotation: add the metadata or original section heading text as an overlay to that level - unlikely to work
+                                for large texts above level 1
+            extend_shades: level to extend the shading across the graph - only applied with alternate_shades, if 0 shades are not extended"""
+
+        # Use bottom and top and number of levels to get patch height
+        section_patch_height, level_count = self._get_level_heights(data, bottom, top)
+
+        # # Initialise cmap as a list for heirarchical tiers
+        # colors = mpl.colormaps['Dark2'].colors
+        # # Loop through levels and create patches
+        y_pos = top
+        print(y_pos)
+
+        shading_index, cmap, norm = self._calculate_shading(level_count, alternate_shades=alternate_shades)
+
+        # Determine whether to use metadata col or heading col
+        if "label" in data.columns:
+            if len(data["label"].dropna()) > 0:
+                annotation_col = "label"
+            else:
+                annotation_col = "heading"
+        
+        for i in range(1, level_count+1):
+            color_pos = 0
+            patch_list = []
+            patch_values = []
+            vlines = []
+            annotations_list =[]
+            filtered_data = (data[data["level"] <= i]
+                             .sort_values(by=["offset", "level"])
+                             .drop_duplicates(subset=["offset"])
+                             .to_dict("records"))
+            for idx, row in enumerate(filtered_data[:-1]):
+                if alternate_shades:
+                    selected_color = shading_index[i-1][color_pos]
+                    color_pos = 1 - color_pos
+                else:
+                    selected_color = shading_index[i-1]
+                
+                height = section_patch_height
+                start = y_pos-section_patch_height
+                if alternate_shades and extend_shades != 0:
+                    if i == extend_shades:
+                        height = (level_count - i + 1) * section_patch_height + self.ax_height
+                        if pos == 'top':
+                            start = y_pos-height
+                        
+
+                patch = self._create_rectangle(row["offset"], filtered_data[idx+1]["offset"], start, height)
+                patch_list.append(patch)
+                patch_values.append(selected_color)
+                if row["level"] <= i:
+                    vlines.append(row["offset"])
+                if i in overlay_annotation:
+                    annotation = row[annotation_col]                      
+                    if str(annotation) == "nan":
+                        annotation = ""
+                    
+                    annot_y = y_pos - section_patch_height/2                             
+                    annotations_list.append({"label_text": annotation,
+                    "y" : annot_y,
+                    "x" : row["offset"] + (filtered_data[idx+1]["offset"]- row["offset"])*0.05,
+                    "va": "center"
+                    })
+                if len(annotations_list) > 0:
+                    self._add_overlay_annotations(annotations_list)
+                         
+                # add condition for overlay annotation
+
+
+            # Line below - added vlines, but this made small sections unreadable 
+            if not alternate_shades:
+                self.ax.vlines(vlines, y_pos-section_patch_height, y_pos, color='black', linewidth=0.5)
+            if pos == 'top':
+                h_pos = y_pos-section_patch_height
+            else:
+                h_pos = y_pos
+            self.ax.axhline(h_pos, color='black', linewidth=0.75)
+            
+            patch_collection = PatchCollection(patch_list, cmap=cmap, norm=norm)
+            patch_collection.set_array(patch_values)
+            self.ax.add_collection(patch_collection)
+            y_pos -= section_patch_height
+        
+        
+
+
+
+
+    def _add_section_lines(self, data, outside_axis, inside_axis, pos, keep_offset_scale=True, heirarchical_shading=True, dotted_vlines_level=0,
+        overlay_annotation = [1], alternate_shades=False, extend_shades=0):
         """Use a list of x positions, and floats for proportion of data outside axis and inside axis to add vlines,
         and a horizonal line to add the section annotation.
         x_pos: list of values along x axis for position of vlines
@@ -204,6 +341,7 @@ class multireuseGraph():
         pos: position of section lines - 'top' == above graph, 'bottom' == below graph
         keep_offset_scale: if True, retain a measure of the number of tokens/chars into text on the axis. If True and pos == 'bottom' - token scale is moved
                             to the top of the graph
+        heirarchical_shading: if True add boxes that reflect the heirarchy of the text
         TODO: Add option for hierachical section shading
 
         Use a decimal (a percentage) to produce new height data that represents the data within the graph itself
@@ -228,18 +366,42 @@ class multireuseGraph():
         else:
             self.ax.xaxis.set_visible(False)
         
-        # Draw a horizontal line for the start of the section labelling
-        self.ax.axhline(h_line_pos, color='black')
         
+        
+
+        # If heirarchical_shading - add boxes for the heirarchical shading
+        if heirarchical_shading:
+            self._add_heirarchical_shading(data, bottom, top, pos, overlay_annotation=overlay_annotation, alternate_shades=alternate_shades, extend_shades=extend_shades)
+        
+        # Get x_pos from the data
+        x_pos = data["offset"].values.tolist()
         # Add the vlines
-        self.ax.vlines(x_pos, bottom, top, color='black', linewidth=0.5)
+        if not heirarchical_shading:
+            # Draw a horizontal line for the start of the section labelling
+            self.ax.axhline(h_line_pos, color='black')
+            self.ax.vlines(x_pos, bottom, top, color='black', linewidth=0.5)
+
+        
+        if dotted_vlines_level > 0:
+            x_pos = data[data["level"] <= dotted_vlines_level]["offset"].values.tolist()
+
+            self.ax.vlines(x_pos, 0, self.ax_height, linewidth=0.5, linestyle='--', color='black')
+
+        # If extend_shades is not 0 - we need to redraw patches
+        if extend_shades != 0:
+            patch_collection = self._write_graph_patches(row_gap=self.row_gap, sort_strategy=self.sort_strategy)
+
+        # TO DO: Add labels to left of the section markers for each section (using annotation)
 
         # Reset plot ylims to make the data visible - taking maximum top and bottom of the data
         self.ax.set_ylim(min([0, bottom]), max([self.ax_height, top]))
 
+        
 
-    def _write_section_maps(self, add_vlines=True, vline_start=0.1, vline_height=0, heading_levels=None, exclude_bios=False, 
-                            add_labels=True, pos='top', keep_offset_scale=True):
+
+    def _write_section_maps(self, add_vlines=True, vline_start=0.4, vline_height=0, heading_levels=None, exclude_bios=False, 
+                            add_labels=True, pos='top', keep_offset_scale=True, heirarchical_shading=True, dotted_vlines_level=0,
+                            overlay_annotation=[1], alternate_shades=False, extend_shades=0):
         """Add the section labels to the graph
         add_vlines: add vlines as well as the labels to the x-axis
         vline_start: position on graph (as percentage of data to start the vline) - -0.1 = start below the xaxis, 10% of total height of graph
@@ -250,6 +412,8 @@ class multireuseGraph():
         add_labels: add labels to the xaxis based on labels in the data
         pos: 'top' - labels and section markers at the top of the graph, 'bottom' labels and sections markers at the bottom of the graph
         keep_offset_scale: keep the scale in chars or tokens, position will be altered based on the pos of the section labels
+        heirarchical_shading: add shading to the bottom section bar that highlights sections
+        dotted_vlines_level: up to which level in the hierarchy to add dotted lines across the graph - 0 == do not use
         """
         section_map = self.data_store["section_map"]
         if section_map is None:
@@ -263,8 +427,9 @@ class multireuseGraph():
             
             # Add vlines using remaining data
             if add_vlines:
-                section_pos = section_map["offset"].values.tolist()
-                self._add_section_lines(section_pos, vline_start, vline_height, pos=pos, keep_offset_scale=keep_offset_scale)
+                self._add_section_lines(section_map, vline_start, vline_height, pos=pos, keep_offset_scale=keep_offset_scale,
+                heirarchical_shading=heirarchical_shading, dotted_vlines_level=dotted_vlines_level, overlay_annotation=overlay_annotation,
+                alternate_shades=alternate_shades, extend_shades=extend_shades)
 
     def _calculate_set_xlim(self, end_marker="text_end"):
         """From data infer xlims"""
@@ -293,8 +458,10 @@ class multireuseGraph():
         self.ax = self.fig.add_subplot(1, 1, 1)
         self.ax_height=0
         self.ax_bottom=0
+        self.row_gap = 0.1
+        self.sort_strategy = sort_strategy
 
-        patch_collection = self._write_graph_patches(row_gap=row_gap, sort_strategy=sort_strategy)
+        patch_collection = self._write_graph_patches(row_gap=self.row_gap, sort_strategy=self.sort_strategy)
         self._calculate_set_xlim()
 
     def write_figure(self, image_path):
