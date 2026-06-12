@@ -175,12 +175,16 @@ class pairwiseMapper():
 
         # Use the mapping_df to fetch all book ids
         book_ids = reuse_map["book2"].drop_duplicates().to_list()
-        book_ids += [main_uri]
+        # book_ids += [main_uri]
         for book_id in book_ids:
             meta_mapper.append({
                 col_1: book_id,
                 col_2: ""
             })
+        meta_mapper.append({
+            col_1: "main_text",
+            col_2: main_uri
+        })
         
         meta_map_df = pd.DataFrame(meta_mapper)
         csv_path = os.path.join(out_dir, "meta_mapper.csv")

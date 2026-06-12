@@ -483,10 +483,13 @@ class multireuseGraph():
     def _set_xlabel(self):
         """Set the units in the xlabel if the metadata is available to determine the unit, overwise just use 'Position in text'"""
         meta_mapper = self.data_store["meta_mapper"]
-        x_label = "Position in text"
+        x_label = "Position in"
         if meta_mapper is not None:
             units_label = meta_mapper[meta_mapper["variable_name"] == "offset_units"]["label"].values.tolist()[0]
-            x_label = f"{x_label} (in {units_label})"
+            main_text = meta_mapper[meta_mapper["variable_name"] == "main_text"]["label"].values.tolist()[0]
+            x_label = f"{x_label} {main_text} (in {units_label})"
+        else:
+            x_label = f"{x_label} {text}"
         self.ax.set_xlabel(x_label)
 
 
