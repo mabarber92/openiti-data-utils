@@ -390,10 +390,11 @@ class multireuseGraph():
             top = self.ax_height + (outside_axis*self.ax_height)
             h_line_pos = self.ax_height
         
-        # If keep_offset_scale and 'bottom' - move the scale to the top - otherwise remove axis
+        # If keep_offset_scale and 'bottom' - move the scale and labels to the top - otherwise remove axis
         if keep_offset_scale:
             if pos == 'bottom':
                 self.ax.xaxis.tick_top()
+                self.ax.xaxis.set_label_position('top')
         else:
             self.ax.xaxis.set_visible(False)
         
@@ -463,6 +464,8 @@ class multireuseGraph():
                 self._add_section_lines(section_map, vline_start, vline_height, pos=pos, keep_offset_scale=keep_offset_scale,
                 heirarchical_shading=heirarchical_shading, dotted_vlines_level=dotted_vlines_level, overlay_annotation=overlay_annotation,
                 alternate_shades=alternate_shades, extend_shades=extend_shades)
+        
+
 
     def _calculate_set_xlim(self, end_marker="text_end"):
         """From data infer xlims"""
@@ -476,6 +479,16 @@ class multireuseGraph():
         # To do : Add ability to use this as a way to filter based on section header range
         self.x_max = end_pos
         self.ax.set_xlim(0, end_pos)
+    
+    def _set_xlabel(self):
+        """Set the units in the xlabel if the metadata is available to determine the unit, overwise just use 'Position in text'"""
+        meta_mapper = self.data_store["meta_mapper"]
+        x_label = "Position in text"
+        if meta_mapper is not None:
+            units_label = meta_mapper[meta_mapper["variable_name"] == "offset_units"]["label"].values.tolist()[0]
+            x_label = f"{x_label} (in {units_label})"
+        self.ax.set_xlabel(x_label)
+
 
     def create_reuse_graph(self, sort_strategy='chron', row_gap=0.1, figsize=None):
         """Full func for handling graph writing
@@ -496,6 +509,7 @@ class multireuseGraph():
 
         patch_collection = self._write_graph_patches(row_gap=self.row_gap, sort_strategy=self.sort_strategy)
         self._calculate_set_xlim()
+        self._set_xlabel()
 
     def write_figure(self, image_path):
         """Allows us to write the figure after tweaking things - like adding annotation"""
