@@ -157,7 +157,7 @@ class multireuseGraph():
         
         # Initialise starting parameters
         self.height_increase = 100/len(books)
-        v_bottom = 0
+        v_bottom = self.height_increase*row_gap
         label_pos = []
         patch_list = []
 
@@ -198,12 +198,17 @@ class multireuseGraph():
         return section_patch_height, level_count
 
     def _add_overlay_annotations(self, annotation_list, font_size=8):
-
+        
         for annotation in annotation_list:
-            self.ax.text(annotation["x"], annotation["y"], annotation["label_text"], size = font_size, va=annotation["va"]
+            if "ha" in annotation.keys():
+                self.ax.text(annotation["x"], annotation["y"], annotation["label_text"], size = font_size, va=annotation["va"],
+                    ha = annotation["ha"]
+                     )
+            else:
+                self.ax.text(annotation["x"], annotation["y"], annotation["label_text"], size = font_size, va=annotation["va"]
                      )
 
-    def _calculate_shading(self, level_count, cmap_name="binary", alternate_shades=False, low_margin=0.15, high_margin=0.4):
+    def _calculate_shading(self, level_count, cmap_name="binary", alternate_shades=False, low_margin=0.05, high_margin=0.4):
         """Create the shader that can be passed to the patch_collection for shading of sections
         and alternating the shades of each section if desired
         level_count: total number of levels in the text
@@ -275,6 +280,9 @@ class multireuseGraph():
                              .drop_duplicates(subset=["offset"])
                              .to_dict("records"))
             for idx, row in enumerate(filtered_data[:-1]):
+                # If the row is not the level being considered - we skip patch drawing and move to next one - so the levels above are only used for ends of patches
+                if row["level"] != i:
+                    continue
                 if alternate_shades:
                     selected_color = shading_index[i-1][color_pos]
                     color_pos = 1 - color_pos
@@ -309,17 +317,19 @@ class multireuseGraph():
                 if len(annotations_list) > 0:
                     self._add_overlay_annotations(annotations_list)
                          
-                # add condition for overlay annotation
-
-
-            # Line below - added vlines, but this made small sections unreadable 
+ 
             if not alternate_shades:
                 self.ax.vlines(vlines, y_pos-section_patch_height, y_pos, color='black', linewidth=0.5)
             if pos == 'top':
                 h_pos = y_pos-section_patch_height
+                label_pos = h_pos + (section_patch_height/2)
             else:
                 h_pos = y_pos
+                label_pos = h_pos - (section_patch_height/2)
             self.ax.axhline(h_pos, color='black', linewidth=0.75)
+            
+            # Add the label for the level
+            self._add_section_labelling(label_pos, level=i)
             
             patch_collection = PatchCollection(patch_list, cmap=cmap, norm=norm)
             patch_collection.set_array(patch_values)
@@ -327,7 +337,28 @@ class multireuseGraph():
             y_pos -= section_patch_height
         
         
-
+    def _add_section_labelling(self, y_pos, level=None, x_dist=0.01):
+        """
+        Add the labels for the section heirarchy
+        y_pos: location of the label on the y_axis
+        level: levels number for the annotation. If None then just add 'Section boundaries' as a label
+        x_dist: distance of label from y axis, decimal represents percentage of the x axis length - 0.1 = 10% of total x axis away from y axis
+        """
+        x_pos = 0 - self.x_max*x_dist
+        if level is None:
+            annotation = "Section boundaries"
+        else:
+            annotation = f"Level {level} section boundaries"
+        annotations = [
+            {"label_text": annotation,
+                    "y" : y_pos,
+                    "x" : x_pos,
+                    "va": "center",
+                    "ha": "right"
+                    }
+        ]
+        self._add_overlay_annotations(annotations)
+        
 
 
 
@@ -380,6 +411,8 @@ class multireuseGraph():
             # Draw a horizontal line for the start of the section labelling
             self.ax.axhline(h_line_pos, color='black')
             self.ax.vlines(x_pos, bottom, top, color='black', linewidth=0.5)
+            label_pos = (top-bottom)/2
+            self._add_section_labelling(label_pos)
 
         
         if dotted_vlines_level > 0:
@@ -391,7 +424,7 @@ class multireuseGraph():
         if extend_shades != 0:
             patch_collection = self._write_graph_patches(row_gap=self.row_gap, sort_strategy=self.sort_strategy)
 
-        # TO DO: Add labels to left of the section markers for each section (using annotation)
+        
 
         # Reset plot ylims to make the data visible - taking maximum top and bottom of the data
         self.ax.set_ylim(min([0, bottom]), max([self.ax_height, top]))
@@ -441,7 +474,7 @@ class multireuseGraph():
             end_pos = self.data_store["reuse_map"]["offset_end"].max()
         
         # To do : Add ability to use this as a way to filter based on section header range
-
+        self.x_max = end_pos
         self.ax.set_xlim(0, end_pos)
 
     def create_reuse_graph(self, sort_strategy='chron', row_gap=0.1, figsize=None):
